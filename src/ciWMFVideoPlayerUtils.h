@@ -15,7 +15,6 @@
 #ifndef PLAYER_H
 #define PLAYER_H
 
-//#include "ofMain.h"
 #include <new>
 #include <windows.h>
 #include <shobjidl.h> 
