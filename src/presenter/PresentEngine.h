@@ -109,12 +109,12 @@ protected:
 
 protected:
 	HANDLE gl_handleD3D;
-	HANDLE d3d_shared_handle;
+//	HANDLE d3d_shared_handle;
 	
 	GLuint gl_name;
 	HANDLE gl_handle;
 
-	DWORD _shared_handle_val;
+//	DWORD _shared_handle_val;
 	IDirect3DSurface9 *d3d_shared_surface;
 	IDirect3DTexture9 *d3d_shared_texture;
 
@@ -122,7 +122,7 @@ protected:
 
 public:
 
-	HANDLE getSharedDeviceHandle() { return gl_handleD3D;}
+//	HANDLE getSharedDeviceHandle() { return gl_handleD3D;}
 
 	virtual void OnReleaseResources()
 	{
