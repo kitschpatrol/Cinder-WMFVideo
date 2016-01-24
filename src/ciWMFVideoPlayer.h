@@ -19,76 +19,83 @@
 
 #include "ciWMFVideoPlayerUtils.h"
 #include "presenter/EVRPresenter.h"
-#include <boost/shared_ptr.hpp>
+#include "cinder/gl/gl.h"
 
 class ciWMFVideoPlayer;
 class CPlayer;
 
-namespace cinder
+class ciWMFVideoPlayer
 {
-	namespace gl
-	{
-		class Texture;
-		typedef std::shared_ptr<Texture> TextureRef;
-	}
-}
+private:
+	static int			_instanceCount;
+	HWND				_hwndPlayer;
+	BOOL				bRepaintClient;
+		
+	int					_width;
+	int					_height;
 
-class ciWMFVideoPlayer {
+	bool				_waitForLoadedToPlay;
+	bool				_isLooping;
+
+	bool				_sharedTextureCreated;
+		
+	ci::gl::TextureRef	_tex;
+	
+	BOOL	InitInstance();
+	void	OnPlayerEvent( HWND hwnd, WPARAM pUnkPtr );
+
+public:
+	friend struct ScopedVideoTextureBind;
+	struct ScopedVideoTextureBind : private ci::Noncopyable
+	{
+	public:
+		ScopedVideoTextureBind( const ciWMFVideoPlayer &video, uint8_t textureUnit );
+		~ScopedVideoTextureBind();
 
 	private:
-		static int  _instanceCount;
-		HWND		_hwndPlayer;
-		BOOL bRepaintClient;
-		
-		int _width;
-		int _height;
+		ci::gl::Context *mCtx;
+		GLenum			mTarget;
+		uint8_t			mTextureUnit;
+		CPlayer			*mPlayer;
+	};
 
-		bool _waitForLoadedToPlay;
-		bool _isLooping;
-
-		bool _sharedTextureCreated;
-		
-		cinder::gl::TextureRef _tex;
-	
-		BOOL InitInstance();
-		void                OnPlayerEvent(HWND hwnd, WPARAM pUnkPtr);
-
-	public:
 	CPlayer*	_player;
-
-	int _id;
+	int			_id;
 	
 	ciWMFVideoPlayer();
-	 ~ciWMFVideoPlayer();
+	~ciWMFVideoPlayer();
 
-	 bool				loadMovie(std::string name, std::string audioDevice="");
-	 void				close();
-	 void				update();
+	bool	loadMovie( const ci::fs::path &filePath, const std::string &audioDevice = "" );
+	void	close();
+	void	update();
 	
-	 void				play();
-	 void				stop();		
-	 void				pause();
+	void	play();
+	void	stop();		
+	void	pause();
+	
+	float	getPosition();
+	float	getDuration();
+	
+	void	setPosition( float pos );
+	
+	float	getHeight();
+	float	getWidth();
+	
+	bool	isPlaying(); 
+	bool	isStopped();
+	bool	isPaused();
 
-	 float				getPosition();
-	 float				getDuration();
+	bool	setSpeed( float speed, bool useThinning = false ); //thinning drops delta frames for faster playback though appears to be choppy, default is false
+	float	getSpeed();
+	
+	void	setLoop( bool isLooping );
+	bool	isLooping() const { return _isLooping; }
 
-	 void				setPosition(float pos);
+	void	draw( int x, int y , int w, int h );
+	void	draw( int x, int y ) { draw( x, y, getWidth(), getHeight() ); }
 
-	 float				getHeight();
-	 float				getWidth();
-
-	 bool				isPlaying(); 
-	 bool				isStopped();
-	 bool				isPaused();
-
-	 void				setLoop(bool isLooping);
-	 bool				isLooping() { return _isLooping; }
-
-	void draw(int x, int y , int w, int h);
-	void draw(int x, int y) { draw(x,y,getWidth(),getHeight()); }
-
-	HWND getHandle() { return _hwndPlayer;}
-	LRESULT WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
+	HWND getHandle() const { return _hwndPlayer; }
+	LRESULT WndProc( HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam );
 
 	static void forceExit();
 };

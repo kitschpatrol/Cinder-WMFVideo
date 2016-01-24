@@ -1,8 +1,9 @@
-#include "cinder/app/App.h"
-#include "cinder/app/AppBasic.h"
-#include "cinder/gl/Texture.h"
 #include "ciWMFVideoPlayerUtils.h"
 #include "ciWMFVideoPlayer.h"
+
+#include "cinder/app/App.h"
+#include "cinder/gl/Texture.h"
+#include "cinder/Log.h"
 
 using namespace std;
 using namespace ci;
@@ -13,6 +14,19 @@ list<PlayerItem> g_WMFVideoPlayers;
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
 // Message handlers
+
+ciWMFVideoPlayer::ScopedVideoTextureBind::ScopedVideoTextureBind( const ciWMFVideoPlayer &video, uint8_t textureUnit ) :
+	mCtx( gl::context() ), mTarget( video._tex->getTarget() ), mTextureUnit( textureUnit ), mPlayer( video._player )
+{
+	mPlayer->m_pEVRPresenter->lockSharedTexture();
+	mCtx->pushTextureBinding( mTarget, video._tex->getId(), mTextureUnit );
+}
+
+ciWMFVideoPlayer::ScopedVideoTextureBind::~ScopedVideoTextureBind()
+{
+	mCtx->popTextureBinding( mTarget, mTextureUnit );
+	mPlayer->m_pEVRPresenter->unlockSharedTexture();
+}
 
 ciWMFVideoPlayer* findPlayers(HWND hwnd)
 {
@@ -51,12 +65,12 @@ ciWMFVideoPlayer::~ciWMFVideoPlayer() {
         SafeRelease(&_player);
     }
 
-	std::cout << "Player " << _id << " Terminated" << std::endl;
+	CI_LOG_I( "Player " << _id << " Terminated" );
 	_instanceCount--;
 	if (_instanceCount == 0) 
 	{
 		 MFShutdown();
-		 cout << "Shutting down MF" << endl;
+		 CI_LOG_I( "Shutting down MF" );
 	}
 }
 
@@ -64,12 +78,12 @@ void ciWMFVideoPlayer::forceExit()
 {
 	if (_instanceCount != 0) 
 	{
-		cout << "Shutting down MF some ciWMFVideoPlayer remains" << endl;
+		CI_LOG_I( "Shutting down MF some ciWMFVideoPlayer remains" );
 		MFShutdown();
 	}
 }
 
- bool ciWMFVideoPlayer::loadMovie(string name, string audioDevice) 
+bool ciWMFVideoPlayer::loadMovie( const fs::path &filePath, const string &audioDevice ) 
  {
 	 if (!_player) 
 	 { 
@@ -77,19 +91,18 @@ void ciWMFVideoPlayer::forceExit()
 		 return false;
 	}
 
-	fs::path path = getAssetPath(name);
-	DWORD fileAttr = GetFileAttributesW(path.c_str());
-	if (fileAttr == INVALID_FILE_ATTRIBUTES) 
-	{
-		stringstream s;
-		s << "The video file '" << name << "'is missing.";
-		//ofLog(OF_LOG_ERROR,"ciWMFVideoPlayer:" + s.str());
-		return false;
-	}
+	//DWORD fileAttr = GetFileAttributesW( filePath.c_str() );
+	//if (fileAttr == INVALID_FILE_ATTRIBUTES) 
+	//{
+	//	CI_LOG_E( "The video file could not be found: '" << filePath );
+	//	//ofLog(OF_LOG_ERROR,"ciWMFVideoPlayer:" + s.str());
+	//	return false;
+	//}
 	
-	//cout << "Videoplayer[" << _id << "] loading " << name << endl;
+	//CI_LOG_I( "Videoplayer[" << _id << "] loading " << name );
+
 	HRESULT hr = S_OK;
-	string s = path.string();
+	string s = filePath.string();
 	std::wstring w(s.length(), L' ');
 	std::copy(s.begin(), s.end(), w.begin());
 
@@ -97,6 +110,9 @@ void ciWMFVideoPlayer::forceExit()
 	std::copy(audioDevice.begin(), audioDevice.end(), a.begin());
 
 	hr = _player->OpenURL( w.c_str(), a.c_str() );
+
+//	CI_LOG_D(GetPlayerStateString(_player->GetState()));
+
 	if (!_sharedTextureCreated)
 	{
 		_width = _player->getWidth();
@@ -105,6 +121,7 @@ void ciWMFVideoPlayer::forceExit()
 		gl::Texture::Format format;
 		format.setInternalFormat(GL_RGBA);
 		format.setTargetRect();
+		format.loadTopDown(true);
 		_tex = gl::Texture::create(_width,_height, format);
 		//_tex.allocate(_width,_height,GL_RGBA,true);
 		_player->m_pEVRPresenter->createSharedTexture(_width, _height, _tex->getId());
@@ -122,6 +139,7 @@ void ciWMFVideoPlayer::forceExit()
 			gl::Texture::Format format;
 			format.setInternalFormat(GL_RGBA);
 			format.setTargetRect();
+			format.loadTopDown(true);
 			_tex = gl::Texture::create(_width,_height, format);
 			//_tex.allocate(_width,_height,GL_RGBA,true);
 			_player->m_pEVRPresenter->createSharedTexture(_width, _height, _tex->getId());
@@ -129,7 +147,7 @@ void ciWMFVideoPlayer::forceExit()
 	}
 
 	_waitForLoadedToPlay = false;
-	return false;
+	return true;
  }
 
  void ciWMFVideoPlayer::draw(int x, int y, int w, int h) 
@@ -197,6 +215,49 @@ float 			ciWMFVideoPlayer::	getDuration() {
 void ciWMFVideoPlayer::setPosition(float pos)
 {
 	_player->setPosition(pos);
+}
+
+float ciWMFVideoPlayer::getSpeed() {
+	return _player->GetPlaybackRate();
+}
+
+bool ciWMFVideoPlayer::setSpeed( float speed, bool useThinning ) {
+	//according to MSDN playback must be stopped to change between forward and reverse playback and vice versa
+	//but is only required to pause in order to shift between forward rates
+	float curRate = getSpeed();
+	HRESULT hr = S_OK;
+	bool resume = isPlaying();
+	if ( curRate >= 0 && speed >= 0 ){
+		if ( !isPaused() )
+			_player->Pause();
+		hr = _player->SetPlaybackRate( useThinning, speed );
+		if ( resume )
+			_player->Play();
+	}
+	else {
+		//setting to a negative doesn't seem to work though no error is thrown...
+		/*float position = getPosition();
+		if(isPlaying())
+		_player->Stop();
+		hr = _player->SetPlaybackRate(useThinning, speed);
+		if(resume){
+		_player->Play();
+		_player->setPosition(position);
+		}*/
+	}
+	if ( hr == S_OK )
+		return true;
+	else{
+		if ( hr == MF_E_REVERSE_UNSUPPORTED )
+			cout << "The object does not support reverse playback." << endl;
+		if ( hr == MF_E_THINNING_UNSUPPORTED )
+			cout << "The object does not support thinning." << endl;
+		if ( hr == MF_E_UNSUPPORTED_RATE )
+			cout << "The object does not support the requested playback rate." << endl;
+		if ( hr == MF_E_UNSUPPORTED_RATE_TRANSITION )
+			cout << "The object cannot change to the new rate while in the running state." << endl;
+		return false;
+	}
 }
 
 float ciWMFVideoPlayer::getHeight() { return _player->getHeight(); }
